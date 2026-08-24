@@ -42,7 +42,21 @@ export function ExperimentClient({
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Compute total planned jobs based on selections
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number>(0);
+
+  // Update elapsed time every second while sweeping
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isSweeping && startTime) {
+      interval = setInterval(() => {
+        setElapsedMs(Date.now() - startTime);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isSweeping, startTime]);
+
+  // Compute sweep config
   const plannedJobs = generateSweepJobs({
     models: selectedModels,
     axes: selectedAxes,
@@ -73,6 +87,8 @@ export function ExperimentClient({
     setCompletedJobs(0);
     setErrorCount(0);
     setStatusMessage("Starting experiment sweep...");
+    setStartTime(Date.now());
+    setElapsedMs(0);
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -133,6 +149,7 @@ export function ExperimentClient({
 
     setIsSweeping(false);
     setCurrentJob(null);
+    setStartTime(null);
     if (!abortController.signal.aborted) {
       setStatusMessage("Sweep completed successfully!");
       setActiveTab("best-model");
@@ -144,11 +161,25 @@ export function ExperimentClient({
       abortControllerRef.current.abort();
     }
     setIsSweeping(false);
+    setStartTime(null);
     setStatusMessage("Sweep cancelled.");
   };
 
   const progressPct =
     totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+
+  // Format time helpers
+  const formatTime = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  };
+
+  const msPerJob = completedJobs > 0 ? elapsedMs / completedJobs : 0;
+  const remainingMs = msPerJob * (totalJobs - completedJobs);
+  const showEstimate = completedJobs >= 2 && isSweeping; // wait for 2 jobs to get a stable estimate
 
   return (
     <div className="flex flex-1 flex-col items-center bg-zinc-50 px-4 py-8 dark:bg-zinc-950 sm:px-6 lg:px-8">
@@ -230,8 +261,8 @@ export function ExperimentClient({
         {/* Sweep Active Progress Card */}
         {isSweeping && (
           <div className="overflow-hidden rounded-2xl border border-blue-500/40 bg-gradient-to-br from-blue-500/10 via-blue-500/5 to-transparent p-5 shadow-xs backdrop-blur-md dark:border-blue-400/30">
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <span className="relative flex h-3 w-3">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
@@ -241,26 +272,36 @@ export function ExperimentClient({
                     Live Client-Side Sweep in Progress
                   </span>
                 </div>
-                <span className="font-mono text-sm font-semibold text-blue-900 dark:text-blue-100">
-                  {completedJobs} / {totalJobs} ({progressPct}%)
-                </span>
+                <div className="flex items-center gap-4 text-xs font-medium">
+                  {showEstimate && (
+                    <span className="text-blue-700/80 dark:text-blue-300/80">
+                      ~{formatTime(remainingMs)} remaining
+                    </span>
+                  )}
+                  <span className="font-mono text-sm font-bold text-blue-900 dark:text-blue-100">
+                    {completedJobs} / {totalJobs} ({progressPct}%)
+                  </span>
+                </div>
               </div>
 
               {/* Progress bar */}
-              <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
+              <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800 shadow-inner">
                 <div
-                  className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 transition-all duration-300 ease-out"
+                  className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500 ease-out"
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
 
-              <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
-                <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                  {statusMessage}
-                </span>
+              <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400 bg-white/50 dark:bg-black/20 p-2.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/50">
+                <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-ellipsis">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                    {statusMessage}
+                  </span>
+                </div>
                 {errorCount > 0 && (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    {errorCount} {errorCount === 1 ? "call" : "calls"} failed
+                  <span className="shrink-0 text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-900/50">
+                    {errorCount} {errorCount === 1 ? "error" : "errors"}
                   </span>
                 )}
               </div>
