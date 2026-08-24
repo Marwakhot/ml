@@ -1,6 +1,6 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { MAX_ROWS, MAX_UPLOAD_BYTES } from "@/lib/constants";
@@ -39,17 +39,31 @@ export function UploadForm() {
 
     try {
       setStage("uploading");
-      const blob = await upload(file.name, file, {
-        access: "public",
-        handleUploadUrl: "/api/blob-upload",
-        contentType: "text/csv",
-      });
+      
+      const supabase = getSupabaseBrowserClient();
+      const uniqueFilename = `${Date.now()}-${file.name}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("datasets")
+        .upload(uniqueFilename, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: "text/csv",
+        });
+
+      if (uploadError) {
+        throw new Error(`Supabase Upload failed: ${uploadError.message}`);
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("datasets")
+        .getPublicUrl(uploadData.path);
 
       setStage("validating");
       const res = await fetch("/api/datasets/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blobUrl: blob.url, filename: file.name }),
+        body: JSON.stringify({ blobUrl: publicUrl, filename: file.name }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -159,7 +173,7 @@ export function UploadForm() {
             <div className="flex flex-col gap-1">
               <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                 {stage === "idle" && "Drop your CSV file here, or browse"}
-                {stage === "uploading" && "Uploading to Vercel Blob..."}
+                {stage === "uploading" && "Uploading to Supabase Storage..."}
                 {stage === "validating" && "Validating structure & schema..."}
               </span>
               <span className="text-xs text-zinc-500">

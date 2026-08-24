@@ -1,4 +1,3 @@
-import { del } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { CsvValidationError, parseAndValidateCsv } from "@/lib/csv";
 import { MAX_UPLOAD_BYTES } from "@/lib/constants";
@@ -9,11 +8,15 @@ interface FinalizeRequestBody {
   filename: string;
 }
 
+// Helper to extract path from public URL for deletion
+function getPathFromUrl(url: string) {
+  const parts = url.split("/datasets/");
+  return parts.length > 1 ? parts[1] : null;
+}
+
 /**
- * Called by the client right after a direct-to-Blob upload completes. The
- * upload itself only enforces a byte cap (via the client token); row-count
- * and column-shape validation need the actual content, so we fetch it back
- * from Blob here, validate, and either persist a dataset row or delete the
+ * Called by the client right after a direct-to-Supabase Storage upload completes.
+ * We fetch it back, validate, and either persist a dataset row or delete the
  * blob and report the problem.
  */
 export async function POST(request: Request): Promise<NextResponse> {
@@ -32,6 +35,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
+  const supabase = getSupabaseServerClient();
+  const filePath = getPathFromUrl(blobUrl);
+
   let csvText: string;
   try {
     const res = await fetch(blobUrl);
@@ -46,7 +52,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     csvText = await res.text();
   } catch (error) {
-    await del(blobUrl).catch(() => {});
+    if (filePath) await supabase.storage.from("datasets").remove([filePath]);
     const message = error instanceof Error ? error.message : "Upload failed";
     return NextResponse.json({ error: message }, { status: 400 });
   }
@@ -54,7 +60,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const parsed = parseAndValidateCsv(csvText);
 
-    const supabase = getSupabaseServerClient();
     const { data, error } = await supabase
       .from("datasets")
       .insert({
@@ -71,7 +76,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json({ dataset: data });
   } catch (error) {
-    await del(blobUrl).catch(() => {});
+    if (filePath) await supabase.storage.from("datasets").remove([filePath]);
     if (error instanceof CsvValidationError) {
       return NextResponse.json({ error: error.message }, { status: 422 });
     }

@@ -2,7 +2,7 @@
 
 An automated Machine Learning benchmarking and research laboratory that runs classical ML models across empirical experimental axes, logs metrics in Supabase, and provides automated diagnostic insights and tradeoff curves.
 
-Built to run **100% on free-tier infrastructure** (Vercel Hobby, Vercel Blob, Supabase Free Tier Postgres).
+Built to run **100% on free-tier infrastructure** (Vercel Hobby, Supabase Free Tier Postgres & Storage).
 
 ---
 
@@ -18,7 +18,7 @@ To overcome these constraints without paid infrastructure, AI Research Lab is bu
 ```
 [Browser Client]
    │
-   ├─ 1. Client-to-Blob Direct Upload (Token Auth) ──> [Vercel Blob Storage]
+   ├─ 1. Client-to-Supabase Storage Direct Upload ──> [Supabase Storage Bucket]
    │     (Bypasses Vercel's 4.5MB server request body cap)
    │
    ├─ 2. Finalize & Validate Schema ──> [POST /api/datasets/finalize] ──> [Supabase Postgres]
@@ -37,7 +37,7 @@ To overcome these constraints without paid infrastructure, AI Research Lab is bu
 
 ### Key Architectural Decisions
 
-- **Direct-to-Blob Upload**: Uploads go directly from the browser to Vercel Blob via `@vercel/blob/client` short-lived tokens, completely bypassing the Next.js server payload limit.
+- **Direct-to-Supabase Upload**: Uploads go directly from the browser to Supabase Storage, completely bypassing the Next.js server payload limit.
 - **One Model Fit per Function Call (`/api/train-one`)**: Instead of running a large server-side loop that times out, the client generates the discrete job list (~150 fits) and executes them sequentially. If any call fails, it can retry without losing previous run metrics.
 - **Dataset Caps**: Uploads are capped at **5MB** and **20,000 rows** (`src/lib/constants.ts`), ensuring every training step finishes in <500ms on serverless CPUs.
 - **Pure TypeScript ML Engine**: High-performance pure-JS classical ML algorithms with deterministic seeding (`mulberry32`), eliminating Python container cold starts and C-extension deployment issues on serverless.
@@ -72,40 +72,11 @@ To overcome these constraints without paid infrastructure, AI Research Lab is bu
 
 - Node.js 18+
 - A free [Supabase](https://supabase.com) account
-- A free [Vercel](https://vercel.com) account (for Blob storage)
 
 ### 2. Configure Supabase Schema
 
 1. Go to your Supabase project's **SQL Editor**.
-2. Run the SQL schema from [`supabase/schema.sql`](supabase/schema.sql):
-
-```sql
-create extension if not exists "pgcrypto";
-
-create table if not exists datasets (
-  id uuid primary key default gen_random_uuid(),
-  filename text not null,
-  blob_url text not null,
-  row_count integer not null,
-  columns jsonb not null,
-  target_column text,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists runs (
-  id uuid primary key default gen_random_uuid(),
-  dataset_id uuid not null references datasets(id) on delete cascade,
-  model_type text not null,
-  config jsonb not null default '{}'::jsonb,
-  accuracy double precision not null,
-  precision double precision not null,
-  recall double precision not null,
-  f1 double precision not null,
-  training_time_ms integer not null,
-  inference_time_ms integer not null,
-  created_at timestamptz not null default now()
-);
-```
+2. Run the SQL schema from [`supabase/schema.sql`](supabase/schema.sql).
 
 ### 3. Configure Environment Variables
 
@@ -117,9 +88,6 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-
-# Vercel Blob (Storage -> Create Blob Store -> .env.local tab)
-BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
 ```
 
 ### 4. Install & Run

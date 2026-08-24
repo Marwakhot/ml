@@ -44,3 +44,20 @@ create policy "datasets_anon_all" on datasets
 
 create policy "runs_anon_all" on runs
   for all using (true) with check (true);
+
+-- Storage bucket for CSV files
+insert into storage.buckets (id, name, public) 
+values ('datasets', 'datasets', true)
+on conflict (id) do nothing;
+
+create policy "Allow public uploads to datasets bucket" 
+on storage.objects for insert 
+with check (bucket_id = 'datasets');
+
+create policy "Allow public reads from datasets bucket" 
+on storage.objects for select 
+using (bucket_id = 'datasets');
+
+create policy "Allow public deletes from datasets bucket"
+on storage.objects for delete
+using (bucket_id = 'datasets');
